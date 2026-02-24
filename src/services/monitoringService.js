@@ -135,7 +135,13 @@ class MonitoringService {
   }
 
   async getUsers() {
-    return await si.users();
+    try {
+      const users = await si.users();
+      return users;
+    } catch (error) {
+      logger.error(`Error getting users: ${error.message}`);
+      return [];
+    }
   }
 
   async getServices() {

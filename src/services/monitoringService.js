@@ -1,7 +1,5 @@
 import si from 'systeminformation';
 import os from 'os';
-import fs from 'fs/promises';
-import path from 'path';
 import logger from '../utils/logger.js';
 
 class MonitoringService {
@@ -9,10 +7,10 @@ class MonitoringService {
     this.monitoringHistory = [];
     this.maxHistoryItems = 100;
     this.thresholds = {
-      cpu: 80, // درصد
-      memory: 85, // درصد
-      disk: 90, // درصد
-      loadAverage: 4 // برای سرور 4 هسته‌ای
+      cpu: 80,
+      memory: 85,
+      disk: 90,
+      loadAverage: 4
     };
   }
 
@@ -24,16 +22,19 @@ class MonitoringService {
         si.fsSize(),
         si.networkStats(),
         si.processes(),
-        si.cpuTemperature().catch(() => ({ main: null, cores: [] })) // بعضی سرورها سنسور دما ندارن
+        si.cpuTemperature().catch(() => ({ main: null, cores: [] }))
       ]);
+
+      // دریافت اینترفیس‌های شبکه
+      const networkInterfaces = await this.#getNetworkInterfaces();
 
       const stats = {
         timestamp: new Date().toISOString(),
         cpu: {
           currentLoad: cpu.currentLoad.toFixed(2),
           avgLoad: os.loadavg(),
-          cores: cpu.cpus.map(c => c.load).map(l => l.toFixed(2)),
-          temperature: temperature.main ? temperature.main.toFixed(1) : 'N/A'
+          cores: cpu.cpus.map(c => c.load.toFixed(2)),
+          temperature: temperature.main ? temperature.main.toFixed(1) : 'نامشخص'
         },
         memory: {
           total: this.#formatBytes(mem.total),
@@ -54,7 +55,7 @@ class MonitoringService {
           type: d.type
         })),
         network: {
-          interfaces: await this.#getNetworkInterfaces(),
+          interfaces: networkInterfaces,
           rxSec: this.#formatBytes(network[0]?.rx_sec || 0) + '/s',
           txSec: this.#formatBytes(network[0]?.tx_sec || 0) + '/s',
           totalRx: this.#formatBytes(network[0]?.rx_bytes || 0),
@@ -76,10 +77,7 @@ class MonitoringService {
         }
       };
 
-      // ذخیره در تاریخچه
       this.#addToHistory(stats);
-
-      // بررسی آستانه‌ها و آلارم
       const alerts = this.#checkThresholds(stats);
 
       return { stats, alerts };
@@ -90,116 +88,119 @@ class MonitoringService {
   }
 
   async getTopProcesses(limit = 10) {
-    const processes = await si.processes();
-    return processes.list
-      .sort((a, b) => b.cpu - a.cpu)
-      .slice(0, limit)
-      .map(p => ({
-        pid: p.pid,
-        name: p.name,
-        cpu: p.cpu.toFixed(2),
-        mem: (p.mem / 1024 / 1024).toFixed(2) + ' MB',
-        memPercent: p.memRss ? ((p.memRss / os.totalmem()) * 100).toFixed(2) : '0',
-        user: p.user,
-        command: p.command.substring(0, 50)
-      }));
+    try {
+      const processes = await si.processes();
+      return processes.list
+        .sort((a, b) => b.cpu - a.cpu)
+        .slice(0, limit)
+        .map(p => ({
+          pid: p.pid,
+          name: p.name,
+          cpu: p.cpu.toFixed(2),
+          mem: (p.mem / 1024 / 1024).toFixed(2) + ' مگابایت',
+          memPercent: p.memRss ? ((p.memRss / os.totalmem()) * 100).toFixed(2) : '0',
+          user: p.user,
+          command: p.command.substring(0, 50)
+        }));
+    } catch (error) {
+      logger.error(`Error getting top processes: ${error.message}`);
+      return [];
+    }
   }
 
   async getCpuHistory() {
-    const history = this.monitoringHistory.map(h => ({
+    return this.monitoringHistory.map(h => ({
       time: new Date(h.timestamp).toLocaleTimeString('fa-IR'),
-      cpu: parseFloat(h.cpu.currentLoad)
+      cpu: parseFloat(h.cpu)
     }));
-    return history;
   }
 
   async getMemoryHistory() {
-    const history = this.monitoringHistory.map(h => ({
+    return this.monitoringHistory.map(h => ({
       time: new Date(h.timestamp).toLocaleTimeString('fa-IR'),
-      memory: parseFloat(h.memory.usagePercent)
+      memory: parseFloat(h.memory)
     }));
-    return history;
   }
 
   async getNetworkHistory() {
-    const history = this.monitoringHistory.map(h => ({
+    return this.monitoringHistory.map(h => ({
       time: new Date(h.timestamp).toLocaleTimeString('fa-IR'),
-      rx: parseFloat(h.network.rxSec.replace(/[^0-9.]/g, '')),
-      tx: parseFloat(h.network.txSec.replace(/[^0-9.]/g, ''))
+      rx: parseFloat(h.network.rx.replace(/[^0-9.]/g, '')),
+      tx: parseFloat(h.network.tx.replace(/[^0-9.]/g, ''))
     }));
-    return history;
   }
 
   async getDiskIO() {
-    return await si.disksIO().catch(() => null);
+    try {
+      return await si.disksIO();
+    } catch (error) {
+      return null;
+    }
   }
 
   async getUsers() {
     try {
-      const users = await si.users();
-      return users;
+      return await si.users();
     } catch (error) {
       logger.error(`Error getting users: ${error.message}`);
       return [];
     }
   }
 
-  async getServices() {
-    return await si.services('*').catch(() => []);
-  }
-
-  async getBattery() {
-    return await si.battery().catch(() => null);
-  }
-
-  async getGraphics() {
-    return await si.graphics().catch(() => null);
-  }
-
-  async getWifiNetworks() {
-    return await si.wifiNetworks().catch(() => []);
-  }
-
-  async setThreshold(metric, value) {
-    if (this.thresholds.hasOwnProperty(metric)) {
-      this.thresholds[metric] = value;
-      return true;
+  async #getNetworkInterfaces() {
+    try {
+      const interfaces = os.networkInterfaces();
+      const result = [];
+      
+      for (const [name, addrs] of Object.entries(interfaces)) {
+        for (const addr of addrs) {
+          if (addr.family === 'IPv4' && !addr.internal) {
+            result.push({
+              name,
+              address: addr.address,
+              netmask: addr.netmask,
+              mac: addr.mac
+            });
+          }
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      logger.error(`Error getting network interfaces: ${error.message}`);
+      return [];
     }
-    return false;
   }
 
   #checkThresholds(stats) {
     const alerts = [];
 
-    // بررسی CPU
     if (parseFloat(stats.cpu.currentLoad) > this.thresholds.cpu) {
       alerts.push({
         level: 'warning',
         metric: 'cpu',
-        message: `⚠️ مصرف CPU به ${stats.cpu.currentLoad}% رسید`,
+        message: `مصرف CPU به ${stats.cpu.currentLoad}% رسید`,
         value: stats.cpu.currentLoad,
         threshold: this.thresholds.cpu
       });
     }
 
-    // بررسی حافظه
     if (parseFloat(stats.memory.usagePercent) > this.thresholds.memory) {
       alerts.push({
         level: 'warning',
         metric: 'memory',
-        message: `⚠️ مصرف RAM به ${stats.memory.usagePercent}% رسید`,
+        message: `مصرف رم به ${stats.memory.usagePercent}% رسید`,
         value: stats.memory.usagePercent,
         threshold: this.thresholds.memory
       });
     }
 
-    // بررسی دیسک
     stats.disk.forEach(disk => {
       if (parseFloat(disk.usePercent) > this.thresholds.disk) {
         alerts.push({
           level: 'warning',
           metric: 'disk',
-          message: `⚠️ دیسک ${disk.mount} به ${disk.usePercent}% پر شده`,
+          message: `دیسک ${disk.mount} به ${disk.usePercent}% پر شده`,
           value: disk.usePercent,
           threshold: this.thresholds.disk,
           mount: disk.mount
@@ -207,13 +208,12 @@ class MonitoringService {
       }
     });
 
-    // بررسی Load Average
     const loadAvg = stats.system.loadAvg[0];
     if (loadAvg > this.thresholds.loadAverage) {
       alerts.push({
         level: 'warning',
         metric: 'load',
-        message: `⚠️ Load Average بالا: ${loadAvg}`,
+        message: `لود اورج بالا: ${loadAvg}`,
         value: loadAvg,
         threshold: this.thresholds.loadAverage
       });
@@ -234,35 +234,14 @@ class MonitoringService {
       }
     });
 
-    // محدود کردن تاریخچه
     if (this.monitoringHistory.length > this.maxHistoryItems) {
       this.monitoringHistory.shift();
     }
   }
 
-  async #getNetworkInterfaces() {
-    const interfaces = os.networkInterfaces();
-    const result = [];
-    
-    for (const [name, addrs] of Object.entries(interfaces)) {
-      for (const addr of addrs) {
-        if (addr.family === 'IPv4' && !addr.internal) {
-          result.push({
-            name,
-            address: addr.address,
-            netmask: addr.netmask,
-            mac: addr.mac
-          });
-        }
-      }
-    }
-    
-    return result;
-  }
-
   #formatBytes(bytes) {
     if (bytes === 0 || !bytes) return '0 B';
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
   }

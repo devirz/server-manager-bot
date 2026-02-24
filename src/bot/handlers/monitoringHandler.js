@@ -46,17 +46,22 @@ composer.callbackQuery('monitor_menu', async (ctx) => {
 });
 
 // مانیتورینگ لحظه‌ای
+// مانیتورینگ لحظه‌ای
 composer.callbackQuery('monitor_realtime', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    // اول یه پیام بده که داره کار می‌کنه
     const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
     
     const { stats, alerts } = await monitoringService.getRealTimeStats();
 
-    const cpuBar = createProgressBar(parseFloat(stats.cpu.currentLoad), 15);
-    const memBar = createProgressBar(parseFloat(stats.memory.usagePercent), 15);
+    // چک کن stats وجود داره
+    if (!stats) {
+      throw new Error('نتونستم آمار رو بگیرم');
+    }
+
+    const cpuBar = createProgressBar(parseFloat(stats.cpu?.currentLoad || 0), 15);
+    const memBar = createProgressBar(parseFloat(stats.memory?.usagePercent || 0), 15);
 
     let message = `
 📊 **وضعیت لحظه ای سرور**
@@ -64,37 +69,38 @@ composer.callbackQuery('monitor_realtime', async (ctx) => {
 ⏱️ زمان: ${new Date(stats.timestamp).toLocaleTimeString('fa-IR')}
 
 ⚡ **پردازنده:**
-${cpuBar} ${stats.cpu.currentLoad}%
-📊 لود: ${stats.system.loadAvg.join(' - ')}
+${cpuBar} ${stats.cpu?.currentLoad || 0}%
+📊 لود: ${stats.system?.loadAvg?.join(' - ') || '0 - 0 - 0'}
 
 💾 **حافظه:**
-${memBar} ${stats.memory.usagePercent}%
-📦 کل: ${stats.memory.total}
-🔄 مصرف: ${stats.memory.used}
-📤 سواپ: ${stats.memory.swapUsed}
+${memBar} ${stats.memory?.usagePercent || 0}%
+📦 کل: ${stats.memory?.total || '0 B'}
+🔄 مصرف: ${stats.memory?.used || '0 B'}
 
 💽 **دیسک:`;
     
-    stats.disk.forEach(d => {
-      const diskBar = createProgressBar(parseFloat(d.usePercent), 10);
-      message += `\n📁 ${d.mount}: ${diskBar} ${d.usePercent}%`;
-    });
+    if (stats.disk && stats.disk.length > 0) {
+      stats.disk.forEach(d => {
+        const diskBar = createProgressBar(parseFloat(d.usePercent || 0), 10);
+        message += `\n📁 ${d.mount}: ${diskBar} ${d.usePercent || 0}%`;
+      });
+    } else {
+      message += `\n📁 اطلاعاتی موجود نیست`;
+    }
 
     message += `\n
 🌐 **شبکه:**
-📥 دریافت: ${stats.network.rxSec}
-📤 ارسال: ${stats.network.txSec}
-🔌 اینترفیس: ${stats.network.interfaces.map(i => i.name).join('، ')}
+📥 دریافت: ${stats.network?.rxSec || '0 B/s'}
+📤 ارسال: ${stats.network?.txSec || '0 B/s'}
 
 ⚙️ **پردازش‌ها:`
     
-    const topProcs = stats.processes.total;
-    message += `\n📊 کل: ${topProcs} | در حال اجرا: ${stats.processes.running}
+    message += `\n📊 کل: ${stats.processes?.total || 0} | در حال اجرا: ${stats.processes?.running || 0}
 
-⏱️ آپتایم: ${stats.system.uptime}
+⏱️ آپتایم: ${stats.system?.uptime || 'نامشخص'}
 ━━━━━━━━━━━━━━━━━━━`;
 
-    if (alerts.length > 0) {
+    if (alerts && alerts.length > 0) {
       message += '\n\n⚠️ **هشدار:**\n';
       alerts.forEach(alert => {
         message += `• ${alert.message}\n`;
@@ -104,7 +110,7 @@ ${memBar} ${stats.memory.usagePercent}%
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_realtime', style: 'warning' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_realtime', style: 'primary' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
@@ -120,7 +126,7 @@ ${memBar} ${stats.memory.usagePercent}%
     });
     
   } catch (error) {
-    console.error('Monitor error:', error);
+    console.error('❌ Monitor error:', error);
     await ctx.reply('❌ خطا! نتونستم اطلاعات رو بگیرم. لطفاً دوباره تلاش کن.');
   }
 });
@@ -130,45 +136,58 @@ composer.callbackQuery('monitor_network', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    // اول یه پیام بده که داره کار می‌کنه
     const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
     
-    const stats = await monitoringService.getRealTimeStats();
+    const { stats } = await monitoringService.getRealTimeStats();
+    
+    // چک کن که stats و network وجود دارن
+    if (!stats || !stats.network) {
+      throw new Error('نتونستم اطلاعات شبکه رو بگیرم');
+    }
+
     const network = stats.network;
+    
+    // مطمئن شو interfaces آرایه هست
+    const interfaces = network.interfaces || [];
 
     let message = '🌐 **وضعیت شبکه**\n';
     message += '━━━━━━━━━━━━━━━━━━━\n\n';
     
-    message += '**اینترفیس‌ها:**\n';
-    network.interfaces.forEach(i => {
-      message += `• ${i.name}: ${i.address}\n`;
-    });
+    if (interfaces.length > 0) {
+      message += '**اینترفیس‌ها:**\n';
+      interfaces.forEach(i => {
+        message += `• ${i.name}: ${i.address}\n`;
+      });
+    } else {
+      message += '**اینترفیس‌ها:**\n• هیچ اینترفیسی پیدا نشد\n';
+    }
 
     message += '\n**ترافیک لحظه‌ای:**\n';
-    message += `📥 دریافت: ${network.rxSec}\n`;
-    message += `📤 ارسال: ${network.txSec}\n\n`;
+    message += `📥 دریافت: ${network.rxSec || '0 B/s'}\n`;
+    message += `📤 ارسال: ${network.txSec || '0 B/s'}\n\n`;
 
     message += '**کل ترافیک:**\n';
-    message += `📥 کل دریافت: ${network.totalRx}\n`;
-    message += `📤 کل ارسال: ${network.totalTx}\n`;
-    message += '\n━━━━━━━━━━━━━━━━━━━';
+    message += `📥 کل دریافت: ${network.totalRx || '0 B'}\n`;
+    message += `📤 کل ارسال: ${network.totalTx || '0 B'}\n`;
 
     // دریافت I/O دیسک (اختیاری)
     try {
       const diskIO = await monitoringService.getDiskIO();
       if (diskIO) {
         message += '\n\n**ورودی/خروجی دیسک:**\n';
-        message += `📖 خواندن: ${diskIO.rIO} عملیات\n`;
-        message += `💾 نوشتن: ${diskIO.wIO} عملیات`;
+        message += `📖 خواندن: ${diskIO.rIO || 0} عملیات\n`;
+        message += `💾 نوشتن: ${diskIO.wIO || 0} عملیات`;
       }
     } catch (e) {
       // اگه نبود، نادیده بگیر
     }
 
+    message += '\n━━━━━━━━━━━━━━━━━━━';
+
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_network', style: 'warning' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_network', style: 'primary' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
@@ -183,11 +202,10 @@ composer.callbackQuery('monitor_network', async (ctx) => {
     });
     
   } catch (error) {
-    console.error('Network error:', error);
+    console.error('❌ Network error:', error);
     await ctx.reply('❌ خطا! نتونستم اطلاعات شبکه رو بگیرم. لطفاً دوباره تلاش کن.');
   }
 });
-
 // تاریخچه CPU
 composer.callbackQuery('monitor_cpu_history', async (ctx) => {
   await ctx.answerCallbackQuery();
@@ -218,7 +236,7 @@ composer.callbackQuery('monitor_cpu_history', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_cpu_history', style: 'warning' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_cpu_history', style: 'primary' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
@@ -262,7 +280,7 @@ composer.callbackQuery('monitor_memory_history', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_memory_history', style: 'warning' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_memory_history', style: 'primary' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
@@ -301,7 +319,7 @@ composer.callbackQuery('monitor_processes', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_processes', style: 'warning' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_processes', style: 'primary' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
@@ -347,7 +365,7 @@ composer.callbackQuery('monitor_users', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_users', style: 'warning' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_users', style: 'primary' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }

@@ -29,79 +29,72 @@ composer.callbackQuery('monitor_menu', async (ctx) => {
 
   try {
     await ctx.editMessageText(
-      '📊 **مانیتورینگ سرور**\n' +
+      '📊 مانیتورینگ سرور\n' +
       '━━━━━━━━━━━━━━━━━━━\n\n' +
       'هرکدوم رو می‌خوای انتخاب کن:', 
-      { parse_mode: 'Markdown', ...keyboard }
+      { ...keyboard }
     );
   } catch (error) {
-    // اگه نتونست ادیت کنه، پیام جدید می‌فرسته
     await ctx.reply(
-      '📊 **مانیتورینگ سرور**\n' +
+      '📊 مانیتورینگ سرور\n' +
       '━━━━━━━━━━━━━━━━━━━\n\n' +
       'هرکدوم رو می‌خوای انتخاب کن:', 
-      { parse_mode: 'Markdown', ...keyboard }
+      { ...keyboard }
     );
   }
 });
 
-// مانیتورینگ لحظه‌ای
-// مانیتورینگ لحظه‌ای
+// مانیتورینگ لحظه‌ای با قابلیت ادیت
 composer.callbackQuery('monitor_realtime', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
+    // نشون بده که داره کار می‌کنه (فقط اولین بار)
+    if (!ctx.callbackQuery.message.text.includes('🔄')) {
+      await ctx.editMessageText('🔄 یه لحظه صبر کن...');
+    }
     
     const { stats, alerts } = await monitoringService.getRealTimeStats();
-
-    // چک کن stats وجود داره
-    if (!stats) {
-      throw new Error('نتونستم آمار رو بگیرم');
-    }
 
     const cpuBar = createProgressBar(parseFloat(stats.cpu?.currentLoad || 0), 15);
     const memBar = createProgressBar(parseFloat(stats.memory?.usagePercent || 0), 15);
 
-    let message = `
-📊 **وضعیت لحظه ای سرور**
-━━━━━━━━━━━━━━━━━━━
-⏱️ زمان: ${new Date(stats.timestamp).toLocaleTimeString('fa-IR')}
+    let message = '';
+    message += '📊 وضعیت الان سرور\n';
+    message += '━━━━━━━━━━━━━━━━━━━\n';
+    message += `⏱️ زمان: ${new Date(stats.timestamp).toLocaleTimeString('fa-IR')}\n\n`;
 
-⚡ **پردازنده:**
-${cpuBar} ${stats.cpu?.currentLoad || 0}%
-📊 لود: ${stats.system?.loadAvg?.join(' - ') || '0 - 0 - 0'}
+    message += `⚡ پردازنده:\n`;
+    message += `${cpuBar} ${stats.cpu?.currentLoad || 0}%\n`;
+    message += `📊 لود: ${stats.system?.loadAvg?.join(' - ') || '0 - 0 - 0'}\n\n`;
 
-💾 **حافظه:**
-${memBar} ${stats.memory?.usagePercent || 0}%
-📦 کل: ${stats.memory?.total || '0 B'}
-🔄 مصرف: ${stats.memory?.used || '0 B'}
+    message += `💾 حافظه:\n`;
+    message += `${memBar} ${stats.memory?.usagePercent || 0}%\n`;
+    message += `📦 کل: ${stats.memory?.total || '0 B'}\n`;
+    message += `🔄 مصرف: ${stats.memory?.used || '0 B'}\n\n`;
 
-💽 **دیسک:`;
-    
+    message += `💽 دیسک:\n`;
     if (stats.disk && stats.disk.length > 0) {
       stats.disk.forEach(d => {
         const diskBar = createProgressBar(parseFloat(d.usePercent || 0), 10);
-        message += `\n📁 ${d.mount}: ${diskBar} ${d.usePercent || 0}%`;
+        message += `📁 ${d.mount}: ${diskBar} ${d.usePercent || 0}%\n`;
       });
     } else {
-      message += `\n📁 اطلاعاتی موجود نیست`;
+      message += `📁 اطلاعاتی موجود نیست\n`;
     }
 
-    message += `\n
-🌐 **شبکه:**
-📥 دریافت: ${stats.network?.rxSec || '0 B/s'}
-📤 ارسال: ${stats.network?.txSec || '0 B/s'}
+    message += `\n🌐 شبکه:\n`;
+    message += `📥 دریافت: ${stats.network?.rxSec || '0 B/s'}\n`;
+    message += `📤 ارسال: ${stats.network?.txSec || '0 B/s'}\n\n`;
 
-⚙️ **پردازش‌ها:`
-    
-    message += `\n📊 کل: ${stats.processes?.total || 0} | در حال اجرا: ${stats.processes?.running || 0}
+    message += `⚙️ پردازش‌ها:\n`;
+    message += `📊 کل: ${stats.processes?.total || 0} | در حال اجرا: ${stats.processes?.running || 0}\n\n`;
 
-⏱️ آپتایم: ${stats.system?.uptime || 'نامشخص'}
-━━━━━━━━━━━━━━━━━━━`;
+    message += `⏱️ آپتایم: ${stats.system?.uptime || 'نامشخص'}\n`;
+    message += '━━━━━━━━━━━━━━━━━━━';
 
     if (alerts && alerts.length > 0) {
-      message += '\n\n⚠️ **هشدار:**\n';
+      message += '\n\n⚠️ هشدار:\n';
       alerts.forEach(alert => {
         message += `• ${alert.message}\n`;
       });
@@ -110,20 +103,14 @@ ${memBar} ${stats.memory?.usagePercent || 0}%
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_realtime', style: 'primary' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_realtime' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
     };
 
-    // پاک کردن پیام وضعیت
-    await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-    
-    // فرستادن پیام جدید
-    await ctx.reply(message, { 
-      parse_mode: 'Markdown',
-      ...keyboard 
-    });
+    // ادیت کردن پیام فعلی
+    await ctx.editMessageText(message, { ...keyboard });
     
   } catch (error) {
     console.error('❌ Monitor error:', error);
@@ -131,100 +118,95 @@ ${memBar} ${stats.memory?.usagePercent || 0}%
   }
 });
 
-// شبکه
+// شبکه با قابلیت ادیت
 composer.callbackQuery('monitor_network', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
+    // نشون بده که داره کار می‌کنه
+    if (!ctx.callbackQuery.message.text.includes('🔄')) {
+      await ctx.editMessageText('🔄 یه لحظه صبر کن...');
+    }
     
     const { stats } = await monitoringService.getRealTimeStats();
     
-    // چک کن که stats و network وجود دارن
     if (!stats || !stats.network) {
       throw new Error('نتونستم اطلاعات شبکه رو بگیرم');
     }
 
     const network = stats.network;
-    
-    // مطمئن شو interfaces آرایه هست
     const interfaces = network.interfaces || [];
 
-    let message = '🌐 **وضعیت شبکه**\n';
+    let message = '';
+    message += '🌐 وضعیت شبکه\n';
     message += '━━━━━━━━━━━━━━━━━━━\n\n';
     
+    message += 'اینترفیس‌ها:\n';
     if (interfaces.length > 0) {
-      message += '**اینترفیس‌ها:**\n';
       interfaces.forEach(i => {
         message += `• ${i.name}: ${i.address}\n`;
       });
     } else {
-      message += '**اینترفیس‌ها:**\n• هیچ اینترفیسی پیدا نشد\n';
+      message += '• هیچ اینترفیسی پیدا نشد\n';
     }
 
-    message += '\n**ترافیک لحظه‌ای:**\n';
+    message += `\nترافیک لحظه‌ای:\n`;
     message += `📥 دریافت: ${network.rxSec || '0 B/s'}\n`;
     message += `📤 ارسال: ${network.txSec || '0 B/s'}\n\n`;
 
-    message += '**کل ترافیک:**\n';
+    message += `کل ترافیک:\n`;
     message += `📥 کل دریافت: ${network.totalRx || '0 B'}\n`;
     message += `📤 کل ارسال: ${network.totalTx || '0 B'}\n`;
 
-    // دریافت I/O دیسک (اختیاری)
     try {
       const diskIO = await monitoringService.getDiskIO();
       if (diskIO) {
-        message += '\n\n**ورودی/خروجی دیسک:**\n';
+        message += `\n\nورودی/خروجی دیسک:\n`;
         message += `📖 خواندن: ${diskIO.rIO || 0} عملیات\n`;
         message += `💾 نوشتن: ${diskIO.wIO || 0} عملیات`;
       }
-    } catch (e) {
-      // اگه نبود، نادیده بگیر
-    }
+    } catch (e) {}
 
     message += '\n━━━━━━━━━━━━━━━━━━━';
 
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_network', style: 'primary' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_network' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
     };
 
-    // پاک کردن پیام وضعیت
-    await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-    
-    // فرستادن پیام جدید
-    await ctx.reply(message, { 
-      ...keyboard 
-    });
+    // ادیت کردن پیام فعلی
+    await ctx.editMessageText(message, { ...keyboard });
     
   } catch (error) {
     console.error('❌ Network error:', error);
     await ctx.reply('❌ خطا! نتونستم اطلاعات شبکه رو بگیرم. لطفاً دوباره تلاش کن.');
   }
 });
+
 // تاریخچه CPU
 composer.callbackQuery('monitor_cpu_history', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
+    if (!ctx.callbackQuery.message.text.includes('🔄')) {
+      await ctx.editMessageText('🔄 یه لحظه صبر کن...');
+    }
     
     const history = await monitoringService.getCpuHistory();
     
     if (history.length === 0) {
-      await ctx.reply('📭 هنوز داده‌ای جمع‌آوری نشده.');
-      await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
+      await ctx.editMessageText('📭 هنوز داده‌ای جمع‌آوری نشده.');
       return;
     }
 
-    let message = '📈 **تاریخچه CPU**\n';
+    let message = '';
+    message += '📈 تاریخچه CPU\n';
     message += '━━━━━━━━━━━━━━━━━━━\n\n';
 
-    // نمایش ۱۰ نمونه آخر
     const recentHistory = history.slice(-10);
     recentHistory.forEach(item => {
       const bar = createProgressBar(item.cpu, 10);
@@ -236,17 +218,16 @@ composer.callbackQuery('monitor_cpu_history', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_cpu_history', style: 'primary' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_cpu_history' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
     };
 
-    await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-    await ctx.reply(message, { ...keyboard });
+    await ctx.editMessageText(message, { ...keyboard });
     
   } catch (error) {
-    console.error('CPU history error:', error);
+    console.error('❌ CPU history error:', error);
     await ctx.reply('❌ خطا! نتونستم تاریخچه رو بگیرم.');
   }
 });
@@ -256,17 +237,19 @@ composer.callbackQuery('monitor_memory_history', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
+    if (!ctx.callbackQuery.message.text.includes('🔄')) {
+      await ctx.editMessageText('🔄 یه لحظه صبر کن...');
+    }
     
     const history = await monitoringService.getMemoryHistory();
     
     if (history.length === 0) {
-      await ctx.reply('📭 هنوز داده‌ای جمع‌آوری نشده.');
-      await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
+      await ctx.editMessageText('📭 هنوز داده‌ای جمع‌آوری نشده.');
       return;
     }
 
-    let message = '📈 **تاریخچه رم**\n';
+    let message = '';
+    message += '📈 تاریخچه رم\n';
     message += '━━━━━━━━━━━━━━━━━━━\n\n';
 
     const recentHistory = history.slice(-10);
@@ -280,17 +263,16 @@ composer.callbackQuery('monitor_memory_history', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_memory_history', style: 'primary' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_memory_history' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
     };
 
-    await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-    await ctx.reply(message, { ...keyboard });
+    await ctx.editMessageText(message, { ...keyboard });
     
   } catch (error) {
-    console.error('Memory history error:', error);
+    console.error('❌ Memory history error:', error);
     await ctx.reply('❌ خطا! نتونستم تاریخچه رو بگیرم.');
   }
 });
@@ -300,11 +282,14 @@ composer.callbackQuery('monitor_processes', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
+    if (!ctx.callbackQuery.message.text.includes('🔄')) {
+      await ctx.editMessageText('🔄 یه لحظه صبر کن...');
+    }
     
     const processes = await monitoringService.getTopProcesses(15);
 
-    let message = '⚡ **پرمصرف‌ترین پردازش‌ها**\n';
+    let message = '';
+    message += '⚡ پرمصرف‌ترین پردازش‌ها\n';
     message += '━━━━━━━━━━━━━━━━━━━\n\n';
     
     processes.forEach((p, index) => {
@@ -319,17 +304,16 @@ composer.callbackQuery('monitor_processes', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_processes', style: 'primary' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_processes' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
     };
 
-    await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-    await ctx.reply(message, { ...keyboard });
+    await ctx.editMessageText(message, { ...keyboard });
     
   } catch (error) {
-    console.error('Processes error:', error);
+    console.error('❌ Processes error:', error);
     await ctx.reply('❌ خطا! نتونستم لیست پردازش‌ها رو بگیرم.');
   }
 });
@@ -339,11 +323,14 @@ composer.callbackQuery('monitor_users', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   try {
-    const statusMsg = await ctx.reply('🔄 یه لحظه صبر کن...');
+    if (!ctx.callbackQuery.message.text.includes('🔄')) {
+      await ctx.editMessageText('🔄 یه لحظه صبر کن...');
+    }
     
     const users = await monitoringService.getUsers();
 
-    let message = '👥 **کاربران آنلاین**\n';
+    let message = '';
+    message += '👥 کاربران آنلاین\n';
     message += '━━━━━━━━━━━━━━━━━━━\n\n';
     
     if (!users || users.length === 0) {
@@ -365,17 +352,16 @@ composer.callbackQuery('monitor_users', async (ctx) => {
     const keyboard = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_users', style: 'primary' }],
+          [{ text: '🔄 بروزرسانی', callback_data: 'monitor_users' }],
           [{ text: '🔙 برگشت', callback_data: 'monitor_menu' }]
         ]
       }
     };
 
-    await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
-    await ctx.reply(message, { ...keyboard });
+    await ctx.editMessageText(message, { ...keyboard });
     
   } catch (error) {
-    console.error('Users error:', error);
+    console.error('❌ Users error:', error);
     await ctx.reply('❌ خطا! نتونستم لیست کاربران رو بگیرم.');
   }
 });
